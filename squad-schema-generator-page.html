@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>הוצאת סכמה של סגל לספורט1</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            text-align: center;
+        }
+        h1 {
+            color: #333;
+        }
+        #teamIdInput {
+            padding: 10px;
+            font-size: 16px;
+            width: 200px;
+        }
+        #generateBtn {
+            padding: 10px 20px;
+            font-size: 16px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            cursor: pointer;
+        }
+        #generateBtn:hover {
+            background-color: #45a049;
+        }
+        #outputArea {
+            width: 100%;
+            height: 400px;
+            margin-top: 20px;
+            font-family: monospace;
+            padding: 10px;
+            box-sizing: border-box;
+        }
+        #errorMessage {
+            color: red;
+            margin-top: 10px;
+        }
+    </style>
+</head>
+<body>
+    <h1>הוצאת סכמה של סגל לספורט1</h1>
+    <h2>עובד כרגע רק לקבוצות מהארץ </h2>
+
+    <input type="number" id="teamIdInput" placeholder="מזהה קבוצה">
+    <button id="generateBtn">צור סכמה</button>
+    <textarea id="outputArea" dir="ltr"></textarea>
+    <div id="errorMessage"></div>
+
+    <script>
+        const BASE_URL = "https://webws.365scores.com/web/squads/?appTypeId=5&langId=2&timezoneName=Asia/Jerusalem&userCountryId=6&competitors=";
+
+        async function fetchJsonData(url) {
+            try {
+                const response = await fetch(url);
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                return await response.json();
+            } catch (error) {
+                console.error("Failed to fetch data:", error);
+                throw error;
+            }
+        }
+
+        function extractRelevantData(jsonData) {
+            const squad = jsonData.squads[0];
+            const team = jsonData.competitors[0];
+            const league = jsonData.competitions.find(comp => comp.id === team.mainCompetitionId);
+            const sport = jsonData.sports[0];
+
+            return { squad, team, league, sport };
+        }
+
+        function transformToSchema(extractedData) {
+            const { squad, team, league, sport } = extractedData;
+
+            let coach = null;
+            const athletes = [];
+
+            squad.athletes.forEach(athlete => {
+                if (athlete.formationPosition.name === "מאמן") {
+                    coach = {
+                        "@type": "Person",
+                        "name": athlete.name
+                    };
+                } else {
+                    athletes.push({
+                        "@type": "Person",
+                        "name": athlete.name
+                    });
+                }
+            });
+
+            const schema = {
+                "@context": "http://schema.org",
+                "@type": "SportsTeam",
+                "name": team.name,
+                "sport": sport.name,
+                "memberOf": [
+                    {
+                        "@type": "SportsOrganization",
+                        "name": league.name
+                    }
+                ],
+                "athlete": athletes
+            };
+
+            if (coach) {
+                schema.coach = coach;
+            }
+
+            return { schema, hasCoach: !!coach };
+        }
+
+        async function generateSchemaForTeam(teamId) {
+            const url = `${BASE_URL}${teamId}`;
+            try {
+                const jsonData = await fetchJsonData(url);
+                const extractedData = extractRelevantData(jsonData);
+                const { schema, hasCoach } = transformToSchema(extractedData);
+                return { schema: JSON.stringify(schema, null, 2), hasCoach };
+            } catch (error) {
+                console.error(`Error generating schema for team ${teamId}:`, error);
+                throw error;
+            }
+        }
+
+        document.getElementById('generateBtn').addEventListener('click', async () => {
+            const teamId = document.getElementById('teamIdInput').value;
+            const outputArea = document.getElementById('outputArea');
+            const errorMessage = document.getElementById('errorMessage');
+            outputArea.value = "מעבד...";
+            errorMessage.textContent = "";
+            try {
+                const { schema, hasCoach } = await generateSchemaForTeam(teamId);
+                outputArea.value = schema;
+                if (!hasCoach) {
+                    errorMessage.textContent = "שים לב: לא נמצא מאמן בנתונים שהתקבלו.";
+                }
+            } catch (error) {
+                outputArea.value = `שגיאה: ${error.message}`;
+            }
+        });
+    </script>
+</body>
+</html>
